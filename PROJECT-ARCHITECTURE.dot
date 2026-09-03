@@ -1,0 +1,66 @@
+digraph microduck {
+  graph [rankdir=TB, bgcolor="#f7f8fa", pad="0.35", nodesep="0.35", ranksep="0.55", fontname="Noto Sans CJK SC,DejaVu Sans", labelloc="t", label="Microduck 软件架构", fontsize=24, fontcolor="#182230"];
+  node [shape=box, style="rounded,filled", fontname="Noto Sans CJK SC,DejaVu Sans", fontsize=11, color="#b8c2cc", penwidth=1.2, margin="0.16,0.10", fontcolor="#182230"];
+  edge [fontname="Noto Sans CJK SC,DejaVu Sans", fontsize=9, color="#64748b", arrowsize=0.7, penwidth=1.1];
+
+  subgraph cluster_clients {
+    label="外部入口 / 客户端"; color="#cbd5e1"; style="rounded,dashed"; fontcolor="#475569";
+    gamepad [label="游戏手柄\nUSB / BLE", fillcolor="#fff4d6"];
+    phone [label="手机 App\nBLE", fillcolor="#fff4d6"];
+    laptop [label="开发机 / 运维\nrobotctl · duckctl · SSH", fillcolor="#fff4d6"];
+    release [label="GitHub Release\nHTTPS", fillcolor="#fff4d6"];
+    peer [label="其他机器人\nBLE / WebRTC", fillcolor="#fff4d6"];
+  }
+
+  subgraph cluster_transport {
+    label="传输层（不拥有机器人状态）"; color="#93c5fd"; style="rounded,dashed"; fontcolor="#1d4ed8";
+    padd [label="padd\n手柄 → 意图", fillcolor="#dbeafe"];
+    btd [label="btd\nBLE GATT API", fillcolor="#dbeafe"];
+    mediad [label="mediad\nWebRTC / 摄像头 / 音频", fillcolor="#dbeafe"];
+  }
+
+  ipc [label="JSON-RPC 2.0\nUnix socket：一行一个对象", fillcolor="#e0f2fe", color="#0284c7", penwidth=1.6];
+
+  subgraph cluster_services {
+    label="机器人板端服务（systemd 管理）"; color="#86efac"; style="rounded,dashed"; fontcolor="#166534";
+    robotd [label="robotd\n50 Hz 控制循环\n策略 · 安全 · robot.health", fillcolor="#dcfce7", color="#16a34a", penwidth=2];
+    configd [label="configd\nWi-Fi · 身份 · 配对\nNetworkManager / BlueZ", fillcolor="#dcfce7"];
+    updaterd [label="updaterd\n校验 · 安装 · 切换\n健康门禁 · 自动回滚", fillcolor="#dcfce7", color="#16a34a", penwidth=1.6];
+    tofd [label="tofd\n8×8 ToF 深度流", fillcolor="#dcfce7"];
+  }
+
+  subgraph cluster_hardware {
+    label="硬件 / 系统资源"; color="#fca5a5"; style="rounded,dashed"; fontcolor="#991b1b";
+    servos [label="15 个舵机 + IMU\nDynamixel / UART", fillcolor="#fee2e2"];
+    network [label="NetworkManager\nBlueZ / D-Bus", fillcolor="#fee2e2"];
+    sensor [label="ToF 传感器\nI²C", fillcolor="#fee2e2"];
+    fs [label="版本目录 + current\n/opt/robot/daemon", fillcolor="#fee2e2"];
+    systemd [label="systemd\n启动 · 重启 · watchdog", fillcolor="#fee2e2"];
+  }
+
+  gamepad -> padd [label="输入"];
+  phone -> btd [label="命令"];
+  laptop -> btd [label="蓝牙"];
+  laptop -> mediad [label="远程控制 / 浏览器"];
+  peer -> mediad [label="WebRTC"];
+  release -> updaterd [label="发布包"];
+  padd -> ipc [label="robot.* 意图"];
+  btd -> ipc [label="子集 API"];
+  mediad -> ipc [label="数据通道 API"];
+  laptop -> ipc [label="本地 CLI"];
+  ipc -> robotd [label="robot.*"];
+  ipc -> configd [label="net.* / system.* / pad.*"];
+  ipc -> updaterd [label="update.*"];
+  tofd -> mediad [label="tof.stream", dir=both, style=dashed];
+  mediad -> robotd [label="状态读取", dir=both, style=dashed];
+  robotd -> servos [label="唯一电机控制者"];
+  configd -> network [label="D-Bus"];
+  tofd -> sensor [label="I²C"];
+  updaterd -> fs [label="verify / swap"];
+  updaterd -> systemd [label="restart"];
+  systemd -> robotd [label="守护", style=dashed];
+  updaterd -> robotd [label="health gate", style=dashed];
+
+  note [label="关键原则：\n只有 robotd 可以触碰电机；\n更新失败自动回滚；\nconfigd / updaterd / btd 可在 robotd 挂掉时继续工作。", shape=note, fillcolor="#fef3c7", color="#d97706"];
+  robotd -> note [style=invis];
+}

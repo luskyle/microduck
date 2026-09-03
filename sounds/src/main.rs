@@ -39,6 +39,12 @@ enum Cmd {
         seed: Option<u32>,
         #[arg(long, default_value_t = 0)]
         variant: u32,
+        /// Loop or trim the rendered sound to this many seconds.
+        #[arg(long)]
+        duration: Option<f64>,
+        /// Silence between repeated sounds, in seconds.
+        #[arg(long, default_value_t = 0.15)]
+        gap: f64,
     },
     /// Render every tag × variant into a directory (the layout robotd plays from).
     RenderAll {
@@ -71,6 +77,12 @@ enum Cmd {
         seed: Option<u32>,
         #[arg(long, default_value_t = 0)]
         variant: u32,
+        /// Loop or trim the scripted sweep to this many seconds.
+        #[arg(long)]
+        duration: Option<f64>,
+        /// Silence between repeated sweeps, in seconds.
+        #[arg(long, default_value_t = 0.15)]
+        gap: f64,
         /// ALSA device; the robot's codec by default.
         #[arg(long, default_value = "plughw:aic3104")]
         device: String,
@@ -161,6 +173,35 @@ fn show(p: &Personality) {
     println!("  warble_depth       {:.2}", p.warble_depth);
     println!("  attack_sharpness   {:.2}", p.attack_sharpness);
     println!("  speed              {:.2}", p.speed);
+}
+
+fn fit_duration(buffer: Vec<f32>, duration: Option<f64>, gap: f64) -> Result<Vec<f32>> {
+    let Some(duration) = duration else {
+        return Ok(buffer);
+    };
+    if !duration.is_finite() || duration < 0.0 {
+        bail!("duration must be a finite, non-negative number of seconds");
+    }
+    if !gap.is_finite() || gap < 0.0 {
+        bail!("gap must be a finite, non-negative number of seconds");
+    }
+    let samples = (duration * f64::from(sounds::SR)).round() as usize;
+    if samples == 0 || buffer.is_empty() {
+        return Ok(Vec::new());
+    }
+    if buffer.len() >= samples {
+        return Ok(buffer[..samples].to_vec());
+    }
+    let gap_samples = (gap * f64::from(sounds::SR)).round() as usize;
+    let mut output = Vec::with_capacity(samples);
+    while output.len() < samples {
+        output.extend_from_slice(&buffer);
+        if gap_samples > 0 {
+            output.extend(std::iter::repeat_n(0.0, gap_samples));
+        }
+    }
+    output.truncate(samples);
+    Ok(output)
 }
 
 /// Pipe a rendered buffer into `aplay`, falling back to the default device off the robot.
@@ -289,9 +330,11 @@ fn main() -> Result<()> {
             out,
             seed,
             variant,
+            duration,
+            gap,
         } => {
             let p = Personality::from_seed(resolve_seed(seed)?);
-            to_wav(&render(&tag, &p, variant)?, &out)?;
+            to_wav(&fit_duration(render(&tag, &p, variant)?, duration, gap)?, &out)?;
             println!("wrote {}", out.display());
         }
         Cmd::RenderAll { out_dir, seed } => {
@@ -312,10 +355,12 @@ fn main() -> Result<()> {
             out,
             seed,
             variant,
+            duration,
+            gap,
             device,
         } => {
             let p = Personality::from_seed(resolve_seed(seed)?);
-            let buf = theremin_sweep(&p, variant);
+            let buf = fit_duration(theremin_sweep(&p, variant), duration, gap)?;
             match out {
                 Some(path) => {
                     to_wav(&buf, &path)?;
