@@ -436,6 +436,9 @@ function newPeerConnection() {
 
   pc.onicecandidate = (event) => {
     if (!event.candidate) return;
+    // GStreamer/libnice cannot resolve browser privacy candidates such as `*.local`; direct
+    // host candidates are still sent and are sufficient for this LAN/loopback console.
+    if (event.candidate.candidate.includes(".local")) return;
     send({
       type: "peer",
       sessionId,

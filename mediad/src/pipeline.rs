@@ -1370,6 +1370,21 @@ fn open_control_channel(
     let peer_label = peer.to_owned();
     runtime.spawn(async move {
         while let Some(line) = outbound_rx.recv().await {
+            loop {
+                match writer.ready_state() {
+                    gst_webrtc::WebRTCDataChannelState::Open => break,
+                    gst_webrtc::WebRTCDataChannelState::Closing
+                    | gst_webrtc::WebRTCDataChannelState::Closed => {
+                        tracing::debug!(
+                            peer = %peer_label,
+                            state = ?writer.ready_state(),
+                            "control channel closed; dropping queued frame"
+                        );
+                        return;
+                    }
+                    _ => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+                }
+            }
             writer.emit_by_name::<()>("send-string", &[&line]);
         }
         tracing::debug!(peer = %peer_label, "control channel writer ended");
